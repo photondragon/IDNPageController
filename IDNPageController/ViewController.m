@@ -59,7 +59,9 @@
 	c10.title = @"青色";
 
 	self.pageController = [IDNPageController new];
+	self.pageController.isTitleBarOnBottom = YES;
 	self.pageController.delegate = self;
+	self.pageController.selectedTitleColor = [UIColor colorWithRed:27/255.0 green:159/255.0 blue:224/255.0 alpha:1];
 	self.pageController.viewControllers = @[c1, c2, c3, c4, c5, c6, c7, c8, c9, c10];
 //	self.pageController.selectedIndex = 3;
 	_pageController.view.frame = self.view.bounds;

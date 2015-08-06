@@ -27,6 +27,9 @@
 @property(nonatomic,strong) UIColor* titleColor; //默认[UIColor colorWithWhite:0.2 alpha:1.0];
 @property(nonatomic,strong) UIColor* titleBarColor; //默认[UIColor colorWithWhite:0.9 alpha:1.0]
 @property(nonatomic,strong) UIColor* selectedColor; //默认RGBA(27,159,224,255)
+@property(nonatomic,strong) UIColor* selectedTitleColor; //默认[UIColor colorWithWhite:0.2 alpha:1.0]，表示与titleColor相同
+
+@property(nonatomic) BOOL isTitleBarOnBottom; //标题栏是否在底部
 
 @end
 

@@ -66,6 +66,8 @@
 		return;
 	dicControllers = [NSMutableDictionary new];
 	_titleColor = [UIColor colorWithWhite:0.2 alpha:1.0];
+	if(_selectedTitleColor==nil)
+		_selectedTitleColor = [UIColor colorWithWhite:0.2 alpha:1.0];
 	controllerInfos = [NSMutableArray new];
 
 	UIView* view = self.view;
@@ -219,7 +221,8 @@
 {
 	if(controllerInfos.count) //还未初始化
 		return;
-	for (UIViewController* c in _viewControllers) {
+	for (NSInteger i = 0;i<_viewControllers.count;i++) {
+		UIViewController* c = _viewControllers[i];
 		IDNPCCInfo* info = [[IDNPCCInfo alloc] init];
 		info.title = c.title;
 		[controllerInfos addObject:info];
@@ -227,7 +230,10 @@
 		UILabel* label = [[UILabel alloc] init];
 		label.textAlignment = NSTextAlignmentCenter;
 		label.backgroundColor = [UIColor clearColor]; //ios6下label默认背景是白色
-		label.textColor = _titleColor;
+		if(_selectedIndex==i)
+			label.textColor = _selectedTitleColor;
+		else
+			label.textColor = _titleColor;
 		label.font = self.titleFont;
 		label.text = info.title;
 		[titleBar addSubview:label];
@@ -353,7 +359,10 @@
 		[self loadTitles];
 		[self calcTitleTextSizes]; //此函数还计算了barHeight
 	}
-	titleBar.frame = CGRectMake(0, 0, frameSize.width, barHeight);
+	if(_isTitleBarOnBottom)
+		titleBar.frame = CGRectMake(0, frameSize.height-barHeight, frameSize.width, barHeight);
+	else
+		titleBar.frame = CGRectMake(0, 0, frameSize.width, barHeight);
 	[self calcTitleLabelSizes];
 	[self layoutTitleLabels];
 
@@ -364,8 +373,11 @@
 	pageSize.height = frameSize.height - barHeight;
 	if(pageSize.height<0)
 		pageSize.height = 0;
-	pageView.frame = CGRectMake(0, barHeight, pageSize.width, pageSize.height);
-
+	if(_isTitleBarOnBottom)
+		pageView.frame = CGRectMake(0, 0, pageSize.width, pageSize.height);
+	else
+		pageView.frame = CGRectMake(0, barHeight, pageSize.width, pageSize.height);
+	
 	CGFloat ratio;
 	if(oldPageSize.width>0)
 		ratio = pageSize.width / oldPageSize.width;
@@ -452,23 +464,48 @@
 
 	if(_selectedIndex!=oldIndex)
 	{
+		if(oldIndex>=0)
+		{
+			IDNPCCInfo* oldinfo = controllerInfos[oldIndex];
+			oldinfo.label.textColor = _titleColor;
+		}
 		IDNPCCInfo* info = controllerInfos[_selectedIndex];
-		if(animated)
+		info.label.textColor = _selectedTitleColor;
+//		if(animated)
 		{
 			[UIView animateWithDuration:0.2 animations:^{
 				selectIndicator.frame = CGRectMake(info.labelOriginX, barHeight-indicatorHeight, info.labelWidth, indicatorHeight);
 			}];
 		}
-		else
-		{
-			selectIndicator.frame = CGRectMake(info.labelOriginX, barHeight-indicatorHeight, info.labelWidth, indicatorHeight);
-		}
+//		else
+//		{
+//			selectIndicator.frame = CGRectMake(info.labelOriginX, barHeight-indicatorHeight, info.labelWidth, indicatorHeight);
+//		}
 
 		if([_delegate respondsToSelector:@selector(pageController:didSelectViewControllerAtIndex:)])
 			[_delegate pageController:self didSelectViewControllerAtIndex:_selectedIndex];
 	}
 }
 
+- (void)setIsTitleBarOnBottom:(BOOL)isTitleBarOnBottom
+{
+	if(isTitleBarOnBottom==_isTitleBarOnBottom)
+		return;
+	_isTitleBarOnBottom = isTitleBarOnBottom;
+	[self.view setNeedsLayout];
+}
+
+- (void)setSelectedTitleColor:(UIColor *)selectedTitleColor
+{
+	if(_selectedTitleColor == selectedTitleColor)
+		return;
+	_selectedTitleColor = selectedTitleColor;
+	if(_selectedIndex>=0)
+	{
+		IDNPCCInfo* info = controllerInfos[_selectedIndex];
+		info.label.textColor = _selectedTitleColor;
+	}
+}
 // 加载可见view，应该在currentIndex改变后调用
 - (void)loadVisibleViews
 {
