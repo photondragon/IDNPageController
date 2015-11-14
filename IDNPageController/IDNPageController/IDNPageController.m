@@ -7,10 +7,17 @@
 //
 
 #import "IDNPageController.h"
+#import <objc/runtime.h>
 
 #define MinSwipeVelocity 1024.0
 #define DefaultFontSize 15
 #define TitleMargin 8 //标题文本左右边距
+
+@interface UIViewController(IDNPageControllerHidden)
+
+@property(nonatomic,weak) IDNPageController* idnPageController;
+
+@end
 
 // controller信息
 @interface IDNPCCInfo : NSObject
@@ -24,10 +31,10 @@
 @end
 
 @interface IDNPageController ()
+<UIScrollViewDelegate>
 {
 	UIScrollView* titleBar;
-	UIView* pageView;
-	UIView* contentView;
+	UIScrollView* scrollView;
 
 	NSInteger numberOfControllers;
 	NSMutableDictionary* dicControllers; //key = index, value = controller
@@ -39,13 +46,7 @@
 	UIFont* titleFont;
 	UIView* selectIndicator; //当前选中标题下方的横条
 	CGFloat indicatorHeight; //横条高度
-
-	UIPanGestureRecognizer* panGestureRecognizer;
-	CGPoint translateOfPan; //Pan操作的上一次translate
 }
-
-@property(nonatomic) CGPoint contentOffset; //contentOffset实时改变时，只会影响contentView的位置。不会引起controller.view的添加和删除。
-
 @end
 
 @implementation IDNPageController
@@ -54,10 +55,7 @@
 
 - (CGSize)sizeOfString:(NSString*)string
 {
-	if([string respondsToSelector:@selector(sizeWithAttributes:)])
-		return [string sizeWithAttributes:@{NSFontAttributeName:self.titleFont}];
-	else
-		return [string sizeWithFont:self.titleFont];
+	return [string sizeWithAttributes:@{NSFontAttributeName:self.titleFont}];
 }
 
 - (void)initializer
@@ -91,14 +89,12 @@
 //		selectIndicator.backgroundColor = [UIColor colorWithRed:0/255.0 green:122/255.0 blue:255/255.0 alpha:1.0];
 	[titleBar addSubview:selectIndicator];
 
-	pageView = [[UIView alloc] init];
-	[view addSubview:pageView];
-
-	contentView = [[UIView alloc] init];
-	[pageView addSubview:contentView];
-
-	panGestureRecognizer = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(pan)];
-	[pageView addGestureRecognizer:panGestureRecognizer];
+	scrollView = [[UIScrollView alloc] init];
+	scrollView.pagingEnabled = YES;
+	scrollView.delegate = self;
+	scrollView.showsVerticalScrollIndicator = NO;
+	scrollView.showsHorizontalScrollIndicator = NO;
+	[view addSubview:scrollView];
 
 	[titleBar addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapOnTitle:)]];
 }
@@ -171,51 +167,6 @@
 	}
 }
 
-- (void)pan
-{
-	if(numberOfControllers<=0)
-		return;
-
-	CGPoint deltaTouch = [panGestureRecognizer translationInView:pageView];
-	[self moveContent:CGPointMake(deltaTouch.x-translateOfPan.x, deltaTouch.y-translateOfPan.y)];
-	switch (panGestureRecognizer.state) {
-		case UIGestureRecognizerStateEnded:
-		{
-			translateOfPan = CGPointZero;
-
-			CGPoint velocity = [panGestureRecognizer velocityInView:pageView];
-			NSInteger newIndex;
-			if(velocity.x>MinSwipeVelocity)
-			{
-				newIndex = _selectedIndex-1;
-				if(newIndex<0)
-					newIndex = 0;
-			}
-			else if(velocity.x<-MinSwipeVelocity)
-			{
-				newIndex = _selectedIndex+1;
-				if(newIndex>=numberOfControllers)
-					newIndex = numberOfControllers - 1;
-			}
-			else
-				newIndex = [self indexFromOffset:_contentOffset];
-
-			[self setSelectedIndex:newIndex animated:YES];
-			[self makeSelectedTitleVisibleAnimated:YES];
-
-			break;
-		}
-		case UIGestureRecognizerStateCancelled:
-			translateOfPan = CGPointZero;
-			self.contentOffset = [self offsetFromIndex:_selectedIndex]; //恢复到selectedIndex对应的offset，相当于什么也没改变。
-
-			break;
-		default:
-			translateOfPan = deltaTouch;
-			break;
-	}
-}
-
 // 加载生成标题Labels
 - (void)loadTitles
 {
@@ -246,6 +197,8 @@
 	CGSize defaultSize = [self sizeOfString:@"永远"];
 	CGFloat minTextWidth = defaultSize.width;
 	barHeight = roundf(defaultSize.height*5.0/3.0);
+	if(barHeight<49)
+		barHeight = 49;
 	indicatorHeight = roundf(barHeight/8.0);
 	for (IDNPCCInfo* info in controllerInfos) {
 		info.textWidth = roundf([self sizeOfString:info.title].width);
@@ -374,9 +327,10 @@
 	if(pageSize.height<0)
 		pageSize.height = 0;
 	if(_isTitleBarOnBottom)
-		pageView.frame = CGRectMake(0, 0, pageSize.width, pageSize.height);
+		scrollView.frame = CGRectMake(0, 0, pageSize.width, pageSize.height);
 	else
-		pageView.frame = CGRectMake(0, barHeight, pageSize.width, pageSize.height);
+		scrollView.frame = CGRectMake(0, barHeight, pageSize.width, pageSize.height);
+	scrollView.contentSize = CGSizeMake(pageSize.width*numberOfControllers, pageSize.height);
 	
 	CGFloat ratio;
 	if(oldPageSize.width>0)
@@ -386,21 +340,14 @@
 
 	if(isInit) //可能在view初始化前，修改了selectedIndex
 	{
-		_contentOffset = CGPointMake(pageSize.width*_selectedIndex, 0);
+		scrollView.contentOffset = CGPointMake(pageSize.width*_selectedIndex, 0);
 		ratio = 1;
 	}
-
-	self.contentOffset = CGPointMake(_contentOffset.x*ratio, 0);
+	scrollView.contentOffset = CGPointMake(scrollView.contentOffset.x*ratio, 0);
 
 	if(pageSize.width>0 && dicControllers.count==0) //首次加载controllers
 		[self loadVisibleViews];
 	[self layoutVisibleViews];
-
-	//重置panGesture信息，以免继续touch时发生界面跳变
-	translateOfPan = CGPointZero;
-	if(panGestureRecognizer.state != UIGestureRecognizerStatePossible)
-		[panGestureRecognizer setTranslation:translateOfPan inView:pageView];
-
 }
 
 - (void)setViewControllers:(NSArray *)viewControllers
@@ -409,6 +356,7 @@
 	
 	for (UIViewController* c in dicControllers.allValues) {
 		[c.view removeFromSuperview];
+		c.idnPageController = nil;
 	}
 	[dicControllers removeAllObjects];
 	for (IDNPCCInfo* info in controllerInfos) {
@@ -418,14 +366,16 @@
 	titleBar.frame = CGRectZero;
 	titleBar.contentSize = CGSizeZero;
 	titleBar.contentOffset = CGPointZero;
-	pageView.frame = CGRectZero;
-	contentView.frame = CGRectZero;
-	_contentOffset = CGPointZero;
+	scrollView.frame = CGRectZero;
+	scrollView.contentOffset = CGPointZero;
 
 	_viewControllers = viewControllers;
 	numberOfControllers = viewControllers.count;
 	_selectedIndex = 0;
 
+	for (UIViewController* c in _viewControllers) {
+		c.idnPageController = self;
+	}
 	if(titleBar) //已经loadView过
 		[self.view setNeedsLayout];
 
@@ -441,9 +391,9 @@
 }
 - (void)setSelectedIndex:(NSInteger)selectedIndex
 {
-	[self setSelectedIndex:selectedIndex animated:NO];
+	[self setSelectedIndex:selectedIndex animated:NO onlyTitle:NO];
 }
-- (void)setSelectedIndex:(NSInteger)selectedIndex animated:(BOOL)animated
+- (void)setSelectedIndex:(NSInteger)selectedIndex animated:(BOOL)animated onlyTitle:(BOOL)onlyTitle
 {
 	if(numberOfControllers==0)
 		return;
@@ -458,7 +408,8 @@
 		return;
 	}
 
-	[self setContentOffset:[self offsetFromIndex:_selectedIndex] animated:animated animateCompletion:nil];
+	if(onlyTitle==NO)
+		[scrollView setContentOffset:[self offsetFromIndex:_selectedIndex] animated:animated];
 	[self loadVisibleViews];
 	[self layoutVisibleViews];
 
@@ -471,16 +422,16 @@
 		}
 		IDNPCCInfo* info = controllerInfos[_selectedIndex];
 		info.label.textColor = _selectedTitleColor;
-//		if(animated)
+		if(animated)
 		{
 			[UIView animateWithDuration:0.2 animations:^{
 				selectIndicator.frame = CGRectMake(info.labelOriginX, barHeight-indicatorHeight, info.labelWidth, indicatorHeight);
 			}];
 		}
-//		else
-//		{
-//			selectIndicator.frame = CGRectMake(info.labelOriginX, barHeight-indicatorHeight, info.labelWidth, indicatorHeight);
-//		}
+		else
+		{
+			selectIndicator.frame = CGRectMake(info.labelOriginX, barHeight-indicatorHeight, info.labelWidth, indicatorHeight);
+		}
 
 		if([_delegate respondsToSelector:@selector(pageController:didSelectViewControllerAtIndex:)])
 			[_delegate pageController:self didSelectViewControllerAtIndex:_selectedIndex];
@@ -537,7 +488,7 @@
 		{
 			NSInteger index = indexNumber.integerValue;
 			UIViewController* c = _viewControllers[index];
-			[contentView addSubview:c.view];
+			[scrollView addSubview:c.view];
 			dicControllers[indexNumber] = c;
 		}
 	}
@@ -552,34 +503,13 @@
 	}
 }
 
-- (void)moveContent:(CGPoint)deltaTouch
+- (void)scrollViewDidScroll:(UIScrollView *)aScrollView
 {
-	if(deltaTouch.x==0 && deltaTouch.y==0)
-		return;
-	self.contentOffset = CGPointMake(_contentOffset.x-deltaTouch.x, _contentOffset.y);
-}
-
-- (void)setContentOffset:(CGPoint)offset
-{
-	[self setContentOffset:offset animated:NO animateCompletion:nil];
-}
-- (void)setContentOffset:(CGPoint)offset animated:(BOOL)animated animateCompletion:(void (^)(BOOL finished))animateCompletion
-{
-	_contentOffset = offset;
-	CGFloat contentWidth = pageSize.width*numberOfControllers;
-	if(offset.x<0)
-		offset.x /= 2.0;
-	else if(offset.x>contentWidth-pageSize.width)
-		offset.x -= (offset.x - contentWidth + pageSize.width)/2.0;
-	if(animated==NO)
+	NSInteger i = scrollView.contentOffset.x / pageSize.width + 0.5;
+	if(i!=_selectedIndex)
 	{
-		contentView.frame = CGRectMake(-offset.x, 0, contentWidth, pageSize.height);
-	}
-	else
-	{
-		[UIView animateWithDuration:0.2 animations:^{
-			contentView.frame = CGRectMake(-offset.x, 0, contentWidth, pageSize.height);
-		} completion:animateCompletion];
+		[self setSelectedIndex:i animated:YES onlyTitle:YES];
+		[self makeSelectedTitleVisibleAnimated:YES];
 	}
 }
 
@@ -619,5 +549,44 @@
 	view.frame = CGRectMake(pageSize.width*index, 0, pageSize.width, pageSize.height);
 }
 
+@end
+
+#pragma mark Category
+
+@interface IDNPageControllerHiddenWeakObj : NSObject
+@property(nonatomic,weak) id weakObj;
+@end
+@implementation IDNPageControllerHiddenWeakObj
+@end
+
+@implementation UIViewController(IDNPageControllerHidden)
+
+static char bindDataKey = 0;
+
+- (NSMutableDictionary*)dictionaryOfIDNPageControllerHiddenBindData
+{
+	NSMutableDictionary* dic = objc_getAssociatedObject(self, &bindDataKey);
+	if(dic==nil)
+	{
+		dic = [NSMutableDictionary dictionary];
+		objc_setAssociatedObject(self, &bindDataKey, dic, OBJC_ASSOCIATION_RETAIN);
+	}
+	return dic;
+}
+
+- (void)setIdnPageController:(IDNPageController *)idnPageController
+{
+	NSMutableDictionary* dic = [self dictionaryOfIDNPageControllerHiddenBindData];
+	IDNPageControllerHiddenWeakObj* weakObj = [IDNPageControllerHiddenWeakObj new];
+	weakObj.weakObj = idnPageController;
+	dic[@"idnPageController"] = weakObj;
+}
+
+- (IDNPageController*)idnPageController
+{
+	NSMutableDictionary* dic = [self dictionaryOfIDNPageControllerHiddenBindData];
+	IDNPageControllerHiddenWeakObj* weakObj = dic[@"idnPageController"];
+	return weakObj.weakObj;
+}
 
 @end

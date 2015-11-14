@@ -19,7 +19,7 @@
 
 @property(nonatomic,weak) id<IDNPageControllerDelegate> delegate;
 
-@property(nonatomic) NSInteger selectedIndex;
+@property(nonatomic) NSInteger selectedIndex; // 暂不支持kvo
 
 #pragma mark 外观设置
 
@@ -36,5 +36,11 @@
 @protocol IDNPageControllerDelegate <NSObject>
 
 - (void)pageController:(IDNPageController*)pageController didSelectViewControllerAtIndex:(NSInteger)index;
+
+@end
+
+@interface UIViewController(IDNPageController)
+
+@property(nonatomic,weak,readonly) IDNPageController* idnPageController;
 
 @end
